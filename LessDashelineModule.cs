@@ -53,8 +53,10 @@ namespace Celeste.Mod.LessDasheline {
             return GetDashColor(dashes, badeline);
         }
         private void PlayerUpdate(On.Celeste.Player.orig_Update orig, Player self) {
-            // we are disabled, don't do anything - let other mods/base game handle it
-            if (!Settings.Enabled) {
+            
+            // If we are disabled, don't do anything - let other mods/base game handle it
+            // If we are a ghost, don't do anything - use settings of other player.
+            if (!Settings.Enabled || self.GetType().Name == "Ghost") {
                orig(self);
                return;
             }
