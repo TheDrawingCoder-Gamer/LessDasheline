@@ -108,10 +108,6 @@ namespace Celeste.Mod.LessDasheline {
             }
         }
         public override void Load() {
-            EverestModuleMetadata moreDasheline = new() {
-                Name = "MoreDasheline",
-                Version = new Version(1, 6, 5)
-            };
             using (new DetourContext { Before = {"*"}}) { 
                 On.Celeste.Player.Update += PlayerUpdate;
             }
