@@ -29,13 +29,37 @@ type LessDashelineModuleSettings() =
     member val SixDashColor: string = "ffff00" with get, set
 
 module LessDasheline = 
+    let logKey: String = "LessDasheline"
     let prevDashes: FieldInfo = typeof<Player>.GetField("lastDashes", BindingFlags.Instance ||| BindingFlags.NonPublic)
     let hairFlashTimer: FieldInfo = typeof<Player>.GetField("hairFlashTimer", BindingFlags.Instance ||| BindingFlags.NonPublic)
+    let flashTimerKey = "LessDasheline/flashTimer"
+    let getLessFlash (p: Player): single = 
+        use d = new DynData<Player>(p)
+        try 
+            d.Get<single> flashTimerKey 
+        with 
+            | _ -> 
+                d.Set<single>(flashTimerKey, single 0)
+                single 0 
+    let setLessFlash (p: Player) (s: single): unit = 
+        use d = new DynData<Player>(p)
+        try 
+            d.Set<single>(flashTimerKey, s)
+        with 
+            e -> 
+                Logger.Log(LogLevel.Error, logKey, e.ToString())
+    let changeFlashWith (p: Player) (update : single -> single): unit = 
+        let cur = getLessFlash p 
+        setLessFlash p (update cur)
+open LessDasheline
 type LessDashelineModule() = 
     inherit EverestModule()
     do 
-        Logger.SetLogLevel("LessDashelineModule", LogLevel.Info)
-
+        #if RELEASE
+        Logger.SetLogLevel(logKey, LogLevel.Info)
+        #else 
+        Logger.SetLogLevel(logKey, LogLevel.Verbose)
+        #endif
     override this.SettingsType: Type = typeof<LessDashelineModuleSettings>
     
     member this.settings: LessDashelineModuleSettings = this._Settings :?> _
@@ -87,7 +111,7 @@ type LessDashelineModule() =
                     retColor.A <- byte (s.GetCounter (flag + "Alpha"))
                     retColor
             | _ -> defColor
-    member this.GetWigColor(player : Player) (dashes : int) = 
+    member this.GetWigColor (player : Player) (dashes : int) = 
         let badeline = 
             match player with 
             | null -> false 
@@ -99,19 +123,25 @@ type LessDashelineModule() =
         elif (player.Dashes < 3 && not this.settings.DoNormalDashCounts && not (this.IsDashCountOverridden(player.Dashes))) then
             player.OverrideHairColor <- Nullable()
         else
-            let lastDashes: int = unbox (LessDasheline.prevDashes.GetValue(player))
+            use data = new DynData<Player>(player)
+            let justDashed = 
+                try 
+                    data.Get<bool>("LessDasheline/justDashed")
+                with 
+                    _ -> false 
+            if (justDashed) then
+                data.Set<bool>("LessDasheline/justDashed", false)
             // let data = new DynData<Player>(player)
             // use custom field to step around more dasheline
-            let flashTimer: float32 = unbox (LessDasheline.hairFlashTimer.GetValue player)
-
+            let flashTimer(): single = LessDasheline.getLessFlash player
             // let hair renderer do it
             if (player.StateMachine.State = Player.StStarFly) then
                player.OverrideHairColor <- Nullable() 
-            elif (lastDashes <> player.Dashes) then
-                LessDasheline.hairFlashTimer.SetValue(player, box (float32 12.0))
-            elif (flashTimer > float32 0.0) then 
+            elif (justDashed) then
+                LessDasheline.setLessFlash player (single 0.12)
+            elif (flashTimer() > single 0.0) then 
                 player.OverrideHairColor <- Nullable(Player.FlashHairColor)
-                LessDasheline.hairFlashTimer.SetValue(player, box (flashTimer - Engine.DeltaTime))
+                LessDasheline.changeFlashWith player (fun s -> s - Engine.DeltaTime)
             else 
                 player.OverrideHairColor <- Nullable(this.GetWigColor player player.Dashes)
         orig.Invoke(player)
@@ -120,7 +150,7 @@ type LessDashelineModule() =
         if not this.settings.Enabled then 
             orig.Invoke(player, wasDashB)
         else 
-            let data = new DynData<Player>(player)
+            use data = new DynData<Player>(player)
             try 
                 let dashes = data.Get<int>("LessDasheline/startDashCount")
                 this.GetWigColor player (dashes - 1)
@@ -131,8 +161,9 @@ type LessDashelineModule() =
 
     member this.hook_GetTrailColor = On.Celeste.Player.hook_GetTrailColor this.Player_GetTrailColor
     member this.Player_StartDash (orig : On.Celeste.Player.orig_StartDash) (player : Player) = 
-        let data = new DynData<Player>(player)
+        use data = new DynData<Player>(player)
         data.Set<int>("LessDasheline/startDashCount", player.Dashes)
+        data.Set<bool>("LessDasheline/justDashed", true)
         orig.Invoke(player)
 
     member this.hook_StartDash = On.Celeste.Player.hook_StartDash this.Player_StartDash
@@ -142,7 +173,7 @@ type LessDashelineModule() =
         orig.Invoke(player)
 
     member this.hook_ReflectionFallBegin = On.Celeste.Player.hook_ReflectionFallBegin this.Player_ReflectionFallBegin
-    override this.Load() = 
+    override this.Load() =
         using (new DetourContext(Before = ResizeArray<string> ["*"] )) ( fun _ -> 
             On.Celeste.Player.add_Update this.hook_PlayerUpdate
         )
