@@ -211,8 +211,11 @@ type LessDashelineModule() =
 
     member this.Player_Die (orig : On.Celeste.Player.orig_Die) (player: Player) (dir: Vector2) (evenIfInvincible: bool) (registerDeathInStats: bool) = 
         let newDeadBody = orig.Invoke(player, dir, evenIfInvincible, registerDeathInStats)
+        
         if this.settings.Enabled then 
-            LessDasheline.deadBodyHairColor.SetValue(newDeadBody, this.GetWigColor player player.MaxDashes)
+            match newDeadBody with 
+            | null -> ()
+            | dead -> LessDasheline.deadBodyHairColor.SetValue(dead, this.GetWigColor player player.MaxDashes)
         newDeadBody
     member this.hook_Player_Die = On.Celeste.Player.hook_Die this.Player_Die
 
